@@ -1,0 +1,28 @@
+{
+  "Name": "Linux Systems Monitoring & Update Operator",
+  "Id": "6ed401eb-5f5b-4af9-b1ef-c7ff57821bf6",
+  "IsCustom": true,
+  "Description": "Monitor diagnostics and manage patches on Linux VMs (Azure and Arc) within the resource group.",
+  "Actions": [
+    "*/read",
+    "Microsoft.Resources/tags/write",
+    "Microsoft.Insights/diagnosticSettings/write",
+    "Microsoft.Insights/diagnosticSettings/read",
+    "Microsoft.Compute/virtualMachines/assessPatches/action",
+    "Microsoft.Compute/virtualMachines/installPatches/action",
+    "Microsoft.Compute/virtualMachines/start/action",
+    "Microsoft.Compute/virtualMachines/restart/action",
+    "Microsoft.Compute/virtualMachines/deallocate/action",
+    "Microsoft.HybridCompute/machines/assessPatches/action",
+    "Microsoft.HybridCompute/machines/installPatches/action",
+    "Microsoft.Compute/locations/operations/read",
+    "Microsoft.HybridCompute/locations/updateCenterOperationResults/read",
+    "Microsoft.ResourceHealth/availabilityStatuses/read"
+  ],
+  "NotActions": [],
+  "DataActions": [],
+  "NotDataActions": [],
+  "AssignableScopes": [
+    "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}"
+  ]
+}
