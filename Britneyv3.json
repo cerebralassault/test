@@ -1,27 +1,34 @@
 {
   "Name": "ResourceGroup_MonitorHealthUpdate_Admin",
-  "Id": "c3644b7f-ead7-421d-a9b8-4a327f31acba",
   "IsCustom": true,
-  "Description": "Monitoring and patching (read+action) role for Linux VMs and Arc servers within the resource group.",
+  "Description": "Mixed Windows/Linux monitoring and update role. Includes diagnostics, health status, and patch assessment/install for Azure and Arc machines, but no write access to resources or tags.",
   "Actions": [
-    "*/read",
-    "Microsoft.Resources/tags/write",
-    "Microsoft.Insights/diagnosticSettings/write",
-    "Microsoft.Insights/diagnosticSettings/read",
-    "Microsoft.Compute/virtualMachines/assessPatches/action",
-    "Microsoft.Compute/virtualMachines/installPatches/action",
+    "Microsoft.Compute/virtualMachines/read",
+    "Microsoft.Compute/virtualMachines/instanceView/read",
+    "Microsoft.Compute/virtualMachines/retrieveBootDiagnosticsData/action",
     "Microsoft.Compute/virtualMachines/start/action",
     "Microsoft.Compute/virtualMachines/restart/action",
-    "Microsoft.Compute/locations/operations/read",
+    "Microsoft.Compute/virtualMachines/deallocate/action",
+    "Microsoft.Compute/virtualMachines/assessPatches/action",
+    "Microsoft.Compute/virtualMachines/installPatches/action",
+    "Microsoft.Compute/virtualMachines/patchAssessmentResults/latest/read",
+    "Microsoft.Compute/virtualMachines/patchInstallationResults/read",
+    "Microsoft.Compute/virtualMachines/providers/Microsoft.Insights/diagnosticSettings/read",
+    "Microsoft.Compute/virtualMachines/providers/Microsoft.Insights/diagnosticSettings/write",
+    "Microsoft.Compute/virtualMachines/providers/Microsoft.Insights/logDefinitions/read",
+    "Microsoft.Compute/virtualMachines/providers/Microsoft.Insights/metricDefinitions/read",
+    "Microsoft.Resources/subscriptions/resourceGroups/read",
+    "Microsoft.Resources/tags/read",
+    "Microsoft.ResourceHealth/AvailabilityStatuses/read",
+    "Microsoft.ResourceHealth/AvailabilityStatuses/current/read",
+    "Microsoft.HybridCompute/machines/read",
     "Microsoft.HybridCompute/machines/assessPatches/action",
     "Microsoft.HybridCompute/machines/installPatches/action",
-    "Microsoft.HybridCompute/locations/updateCenterOperationResults/read",
-    "Microsoft.ResourceHealth/availabilityStatuses/read"
+    "Microsoft.HybridCompute/machines/patchAssessmentResults/read",
+    "Microsoft.HybridCompute/machines/patchInstallationResults/read"
   ],
   "NotActions": [],
-  "DataActions": [],
-  "NotDataActions": [],
   "AssignableScopes": [
-    "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}"
+    "/subscriptions/<subscriptionId>/resourceGroups/<resourceGroupName>"
   ]
 }
