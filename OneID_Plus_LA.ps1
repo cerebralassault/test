@@ -5,6 +5,15 @@ param(
     [switch]$NoPrompt
 )
 
+if (-not $Mode) {
+    Write-Host ""
+    Write-Host "Select a mode:"
+    Write-Host "  1 - Update from OneID"
+    Write-Host "  2 - Restore from backup"
+    Write-Host "  3 - Sync EPU/LA from base accounts"
+    $Mode = Read-Host "Enter mode number (1, 2, or 3)"
+}
+
 Add-Type -AssemblyName "System.DirectoryServices.Protocols"
 Import-Module ActiveDirectory -ErrorAction Stop
 
