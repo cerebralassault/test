@@ -12,7 +12,7 @@ Import-Module ActiveDirectory -ErrorAction Stop
 $BackupRoot       = "C:\temp\OneID_Backups"
 $SearchBaseOUDN   = "<SET-THIS-OU-DN-LATER>"
 $EPU_OU           = "OU=EPU,OU=Accounts,OU=Accounts and Groups,DC=DRE,DC=dev,DC=int"
-$LA_OU            = "<SET-LA-OU-DN-LATER>"   # <- LA accounts OU
+$LA_OU            = "<SET-LA-OU-DN-LATER>"
 $OutputCsvPath    = Join-Path $BackupRoot ("OneID_AltSecIds_Backup_{0}.csv" -f (Get-Date -Format "yyyyMMdd_HHmm"))
 $Port             = 636
 $ServerName       = <insertlater>
@@ -24,7 +24,46 @@ if (!(Test-Path $BackupRoot)) {
     New-Item -ItemType Directory -Path $BackupRoot | Out-Null
 }
 
-# ... [functions unchanged: Connect-LDAPSServer, Get-LDAPSQuery, Get-OneIdIssuerSerial] ...
+function Connect-LDAPSServer {
+    param($Server, $Port, $BaseDN, $Username, $PSCR_Path)
+    $key = (1..32)
+    if (!(Test-Path $PSCR_Path)) {
+        $cred = Get-Credential -Message "Enter ONEID credentials"
+        $cred.Password | ConvertFrom-SecureString -Key $key | Set-Content -Path $PSCR_Path -Force
+    }
+    $secure = Get-Content $PSCR_Path | ConvertTo-SecureString -Key $key
+    $creds = New-Object System.Management.Automation.PSCredential($Username, $secure)
+    $pwd = $creds.GetNetworkCredential().Password
+    $conn = New-Object System.DirectoryServices.Protocols.LdapConnection("$Server`:$Port")
+    $conn.SessionOptions.SecureSocketLayer = $true
+    $conn.SessionOptions.VerifyServerCertificate = { $true }
+    $conn.SessionOptions.ProtocolVersion = 3
+    $conn.AuthType = [System.DirectoryServices.Protocols.AuthType]::Basic
+    $conn.Bind((New-Object System.Net.NetworkCredential($Username, $pwd)))
+    return $conn
+}
+
+function Get-LDAPSQuery {
+    param($LDAPS_Connection, $BaseDN, $LDAPS_Filter)
+    $req = New-Object System.DirectoryServices.Protocols.SearchRequest($BaseDN, $LDAPS_Filter, [System.DirectoryServices.Protocols.SearchScope]::Subtree)
+    try { return $LDAPS_Connection.SendRequest($req) } catch { return $null }
+}
+
+function Get-OneIdIssuerSerial {
+    param($Entry)
+    $bin = $Entry.Attributes."hspd12currentpivauthenticationcertificate;binary"
+    if (-not $bin) { return $null }
+    try {
+        $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($bin)
+        $issuerParts = $cert.IssuerName.Name -split "," | ForEach-Object { $_.Trim() }
+        [array]::Reverse($issuerParts)
+        $issuer = ($issuerParts -join ",")
+        $serial = [System.BitConverter]::ToString($cert.GetSerialNumber()) -replace "-", ""
+        [pscustomobject]@{ IssuerName = $issuer; SerialNumber = $serial }
+    } catch {
+        return $null
+    }
+}
 
 function Run-OneIdUpdateMode {
     param(
@@ -81,6 +120,7 @@ function Run-OneIdUpdateMode {
             DistinguishedName=$u.DistinguishedName
         }
     }
+
     $Backup | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Encoding UTF8
     $doWhatIf = if ($NoPrompt) { $false } else { (Read-Host "Run What-If mode (Y/N)") -match '^(Y|y)$' }
     $confirm = if ($NoPrompt) { $true } else { Read-Host "Update all matched users (Y/N)" }
@@ -140,7 +180,41 @@ function Run-OneIdUpdateMode {
     }
 }
 
-# ... [Run-RestoreMode unchanged] ...
+function Run-RestoreMode {
+    $files = Get-ChildItem -Path $BackupRoot -Filter "OneID_AltSecIds_Backup_*.csv" -File | Sort-Object LastWriteTime -Descending
+    if (!$files) { return }
+    for ($i = 0; $i -lt $files.Count; $i++) {
+        Write-Host ("  {0}) {1} ({2})" -f ($i + 1), $files[$i].Name, $files[$i].LastWriteTime)
+    }
+    $sel = Read-Host "Select a backup by number"
+    if ($sel -notmatch '^\d+$' -or [int]$sel -lt 1 -or [int]$sel -gt $files.Count) { return }
+    $path = $files[[int]$sel - 1].FullName
+    $doWhatIf = (Read-Host "Run restore in What-If mode (Y/N)") -match '^(Y|y)$'
+    $confirm = Read-Host "Restore ALL users from this backup (Y/N)"
+    if ($confirm -notmatch '^(Y|y)$') { return }
+
+    $rows = Import-Csv -Path $path
+    foreach ($r in $rows) {
+        try {
+            $dn = $r.DistinguishedName
+            if (-not $dn) { continue }
+            $vals = if ($r.AltSecurityIdentities) { $r.AltSecurityIdentities -split '\|' } else { @() }
+            if ($doWhatIf) {
+                if ($vals.Count -gt 0) {
+                    Set-ADUser -Identity $dn -Replace @{ altSecurityIdentities = $vals } -WhatIf
+                } else {
+                    Set-ADUser -Identity $dn -Clear altSecurityIdentities -WhatIf
+                }
+            } else {
+                if ($vals.Count -gt 0) {
+                    Set-ADUser -Identity $dn -Replace @{ altSecurityIdentities = $vals }
+                } else {
+                    Set-ADUser -Identity $dn -Clear altSecurityIdentities
+                }
+            }
+        } catch {}
+    }
+}
 
 function Run-EpuSyncFromBaseMode {
     $baseUsers = Get-ADUser -SearchBase $SearchBaseOUDN -LDAPFilter "(userPrincipalName=*)" -Properties SamAccountName,altSecurityIdentities
