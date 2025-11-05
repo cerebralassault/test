@@ -22,7 +22,7 @@ if (!(Test-Path $BackupRoot)) {
     New-Item -ItemType Directory -Path $BackupRoot | Out-Null
 }
 
-# Establish secure LDAPS connection to OneID
+# Connect securely to OneID via LDAPS
 function Connect-LDAPSServer {
     param($Server, $Port, $BaseDN, $Username, $PSCR_Path)
     $key = (1..32)
@@ -42,7 +42,7 @@ function Connect-LDAPSServer {
     return $conn
 }
 
-# Send LDAPS query to OneID
+# Perform LDAPS query
 function Get-LDAPSQuery {
     param($LDAPS_Connection, $BaseDN, $LDAPS_Filter)
     $req = New-Object System.DirectoryServices.Protocols.SearchRequest($BaseDN, $LDAPS_Filter, [System.DirectoryServices.Protocols.SearchScope]::Subtree)
@@ -69,7 +69,7 @@ function Run-UpdateMainAccounts {
     $users = Get-ADUser -SearchBase $SearchBaseOUDN -SearchScope Subtree -LDAPFilter "(userPrincipalName=*)" -Properties SamAccountName,UserPrincipalName,altSecurityIdentities
     $ONEID = Connect-LDAPSServer -Server $ServerName -Port $Port -BaseDN $BaseDN -Username $ONEID_CREDS_DN -PSCR_Path $ONEID_Creds_Path
 
-    # Create backup dataset
+    # Build backup data
     $Backup = foreach ($u in $users) {
         $filter = "(&(objectClass=*)(hspd12upn=$($u.UserPrincipalName)))"
         $resp = Get-LDAPSQuery -LDAPS_Connection $ONEID -BaseDN $BaseDN -LDAPS_Filter $filter
@@ -104,18 +104,21 @@ function Run-UpdateMainAccounts {
         if ($confirm -notmatch '^(Y|y)$') { return }
     }
 
-    # Apply updates only when needed
+    # Update accounts only when needed
     foreach ($t in $Backup | Where-Object { $_.MatchState -eq "MatchedWithPIV" -and $_.NewAltSecID }) {
         try {
-            # Preserve non-Entrust/Homeland values
+            # Preserve non-Entrust/Homeland entries
             $existing = @()
             if ($t.AltSecurityIdentities) {
                 $existing = $t.AltSecurityIdentities -split '\|' | Where-Object { $_ -notmatch 'Entrust|Homeland' }
             }
-            # Merge and ensure unique
+            # Merge and normalize arrays
             $merged = $existing + $t.NewAltSecID | Select-Object -Unique
-            # Skip if no real change
-            if (-not ((@($t.AltSecurityIdentities) -join '|') -eq ($merged -join '|'))) {
+            $current = @($t.AltSecurityIdentities -split '\|') | Sort-Object
+            $new     = @($merged) | Sort-Object
+
+            # Compare sorted lists; update only if real change
+            if (-not (($current -join '|') -eq ($new -join '|'))) {
                 Write-Host "Updating $($t.Username)..."
                 Set-ADUser -Identity $t.DistinguishedName -Replace @{ altSecurityIdentities = $merged }
             }
@@ -150,7 +153,7 @@ function Run-RestoreFromBackup {
     }
 }
 
-# --- Mode switch ---
+# --- Mode selection ---
 switch ($Mode) {
     'update'  { Run-UpdateMainAccounts }
     'restore' { Run-RestoreFromBackup }
