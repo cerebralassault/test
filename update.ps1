@@ -1,12 +1,9 @@
-# Main Account Automation Script (Updated with inline comments and strict behavior guards)
-
 param(
     [ValidateSet('update', 'restore')]
     [string]$Mode,
     [switch]$NoPrompt
 )
 
-# Load required assemblies and modules
 Add-Type -AssemblyName "System.DirectoryServices.Protocols"
 Import-Module ActiveDirectory -ErrorAction Stop
 
@@ -25,7 +22,7 @@ if (!(Test-Path $BackupRoot)) {
     New-Item -ItemType Directory -Path $BackupRoot | Out-Null
 }
 
-# Connect securely to LDAPS server
+# Establish secure LDAPS connection to OneID
 function Connect-LDAPSServer {
     param($Server, $Port, $BaseDN, $Username, $PSCR_Path)
     $key = (1..32)
@@ -45,14 +42,14 @@ function Connect-LDAPSServer {
     return $conn
 }
 
-# Perform LDAPS search query
+# Send LDAPS query to OneID
 function Get-LDAPSQuery {
     param($LDAPS_Connection, $BaseDN, $LDAPS_Filter)
     $req = New-Object System.DirectoryServices.Protocols.SearchRequest($BaseDN, $LDAPS_Filter, [System.DirectoryServices.Protocols.SearchScope]::Subtree)
     try { return $LDAPS_Connection.SendRequest($req) } catch { return $null }
 }
 
-# Extract Issuer and Serial Number from PIV certificate
+# Extract Issuer + SerialNumber from OneID certificate
 function Get-OneIdIssuerSerial {
     param($Entry)
     $bin = $Entry.Attributes."hspd12currentpivauthenticationcertificate;binary"
@@ -64,15 +61,15 @@ function Get-OneIdIssuerSerial {
         $issuer = ($issuerParts -join ",")
         $serial = [System.BitConverter]::ToString($cert.GetSerialNumber()) -replace "-", ""
         [pscustomobject]@{ IssuerName = $issuer; SerialNumber = $serial }
-    } catch {
-        return $null
-    }
+    } catch { return $null }
 }
 
-# Main update logic for base accounts only
+# --- MAIN UPDATE MODE ---
 function Run-UpdateMainAccounts {
     $users = Get-ADUser -SearchBase $SearchBaseOUDN -SearchScope Subtree -LDAPFilter "(userPrincipalName=*)" -Properties SamAccountName,UserPrincipalName,altSecurityIdentities
     $ONEID = Connect-LDAPSServer -Server $ServerName -Port $Port -BaseDN $BaseDN -Username $ONEID_CREDS_DN -PSCR_Path $ONEID_Creds_Path
+
+    # Create backup dataset
     $Backup = foreach ($u in $users) {
         $filter = "(&(objectClass=*)(hspd12upn=$($u.UserPrincipalName)))"
         $resp = Get-LDAPSQuery -LDAPS_Connection $ONEID -BaseDN $BaseDN -LDAPS_Filter $filter
@@ -98,6 +95,8 @@ function Run-UpdateMainAccounts {
             DistinguishedName=$u.DistinguishedName
         }
     }
+
+    # Export backup
     $Backup | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Encoding UTF8
 
     if (-not $NoPrompt) {
@@ -105,22 +104,26 @@ function Run-UpdateMainAccounts {
         if ($confirm -notmatch '^(Y|y)$') { return }
     }
 
+    # Apply updates only when needed
     foreach ($t in $Backup | Where-Object { $_.MatchState -eq "MatchedWithPIV" -and $_.NewAltSecID }) {
-    Write-Host "Updating $($t.Username) with new altSecurityIdentities value"
         try {
+            # Preserve non-Entrust/Homeland values
             $existing = @()
             if ($t.AltSecurityIdentities) {
                 $existing = $t.AltSecurityIdentities -split '\|' | Where-Object { $_ -notmatch 'Entrust|Homeland' }
             }
-            if ($existing -notcontains $t.NewAltSecID) {
-                $merged = $existing + $t.NewAltSecID | Select-Object -Unique
+            # Merge and ensure unique
+            $merged = $existing + $t.NewAltSecID | Select-Object -Unique
+            # Skip if no real change
+            if (-not ((@($t.AltSecurityIdentities) -join '|') -eq ($merged -join '|'))) {
+                Write-Host "Updating $($t.Username)..."
                 Set-ADUser -Identity $t.DistinguishedName -Replace @{ altSecurityIdentities = $merged }
             }
         } catch {}
     }
 }
 
-# Restore altSecurityIdentities from backup CSV
+# --- RESTORE MODE ---
 function Run-RestoreFromBackup {
     $files = Get-ChildItem -Path $BackupRoot -Filter "OneID_MainAccount_Backup_*.csv" -File | Sort-Object LastWriteTime -Descending
     if (!$files) { Write-Host "No backups found."; return }
@@ -137,15 +140,17 @@ function Run-RestoreFromBackup {
             if (-not $dn) { continue }
             $vals = if ($r.AltSecurityIdentities) { $r.AltSecurityIdentities -split '\|' } else { @() }
             if ($vals.Count -gt 0) {
+                Write-Host "Restoring $($r.Username)..."
                 Set-ADUser -Identity $dn -Replace @{ altSecurityIdentities = $vals }
             } else {
+                Write-Host "Clearing $($r.Username)..."
                 Set-ADUser -Identity $dn -Clear altSecurityIdentities
             }
         } catch {}
     }
 }
 
-# Run selected mode
+# --- Mode switch ---
 switch ($Mode) {
     'update'  { Run-UpdateMainAccounts }
     'restore' { Run-RestoreFromBackup }
