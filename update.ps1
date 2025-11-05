@@ -1,12 +1,16 @@
+# Main Account Automation Script (Updated with inline comments and strict behavior guards)
+
 param(
     [ValidateSet('update', 'restore')]
     [string]$Mode,
     [switch]$NoPrompt
 )
 
+# Load required assemblies and modules
 Add-Type -AssemblyName "System.DirectoryServices.Protocols"
 Import-Module ActiveDirectory -ErrorAction Stop
 
+# Configuration
 $BackupRoot       = "C:\temp\OneID_Backups"
 $SearchBaseOUDN   = "<SET-THIS-OU-DN-LATER>"
 $OutputCsvPath    = Join-Path $BackupRoot ("OneID_MainAccount_Backup_{0}.csv" -f (Get-Date -Format "yyyyMMdd_HHmm"))
@@ -16,10 +20,12 @@ $BaseDN           = <insertlater>
 $ONEID_CREDS_DN   = <insertlater>
 $ONEID_Creds_Path = "$BackupRoot\oneid_auth.txt"
 
+# Ensure backup directory exists
 if (!(Test-Path $BackupRoot)) {
     New-Item -ItemType Directory -Path $BackupRoot | Out-Null
 }
 
+# Connect securely to LDAPS server
 function Connect-LDAPSServer {
     param($Server, $Port, $BaseDN, $Username, $PSCR_Path)
     $key = (1..32)
@@ -39,12 +45,14 @@ function Connect-LDAPSServer {
     return $conn
 }
 
+# Perform LDAPS search query
 function Get-LDAPSQuery {
     param($LDAPS_Connection, $BaseDN, $LDAPS_Filter)
     $req = New-Object System.DirectoryServices.Protocols.SearchRequest($BaseDN, $LDAPS_Filter, [System.DirectoryServices.Protocols.SearchScope]::Subtree)
     try { return $LDAPS_Connection.SendRequest($req) } catch { return $null }
 }
 
+# Extract Issuer and Serial Number from PIV certificate
 function Get-OneIdIssuerSerial {
     param($Entry)
     $bin = $Entry.Attributes."hspd12currentpivauthenticationcertificate;binary"
@@ -61,6 +69,7 @@ function Get-OneIdIssuerSerial {
     }
 }
 
+# Main update logic for base accounts only
 function Run-UpdateMainAccounts {
     $users = Get-ADUser -SearchBase $SearchBaseOUDN -SearchScope Subtree -LDAPFilter "(userPrincipalName=*)" -Properties SamAccountName,UserPrincipalName,altSecurityIdentities
     $ONEID = Connect-LDAPSServer -Server $ServerName -Port $Port -BaseDN $BaseDN -Username $ONEID_CREDS_DN -PSCR_Path $ONEID_Creds_Path
@@ -97,17 +106,21 @@ function Run-UpdateMainAccounts {
     }
 
     foreach ($t in $Backup | Where-Object { $_.MatchState -eq "MatchedWithPIV" -and $_.NewAltSecID }) {
+    Write-Host "Updating $($t.Username) with new altSecurityIdentities value"
         try {
             $existing = @()
             if ($t.AltSecurityIdentities) {
                 $existing = $t.AltSecurityIdentities -split '\|' | Where-Object { $_ -notmatch 'Entrust|Homeland' }
             }
-            $merged = $existing + $t.NewAltSecID | Select-Object -Unique
-            Set-ADUser -Identity $t.DistinguishedName -Replace @{ altSecurityIdentities = $merged }
+            if ($existing -notcontains $t.NewAltSecID) {
+                $merged = $existing + $t.NewAltSecID | Select-Object -Unique
+                Set-ADUser -Identity $t.DistinguishedName -Replace @{ altSecurityIdentities = $merged }
+            }
         } catch {}
     }
 }
 
+# Restore altSecurityIdentities from backup CSV
 function Run-RestoreFromBackup {
     $files = Get-ChildItem -Path $BackupRoot -Filter "OneID_MainAccount_Backup_*.csv" -File | Sort-Object LastWriteTime -Descending
     if (!$files) { Write-Host "No backups found."; return }
@@ -132,6 +145,7 @@ function Run-RestoreFromBackup {
     }
 }
 
+# Run selected mode
 switch ($Mode) {
     'update'  { Run-UpdateMainAccounts }
     'restore' { Run-RestoreFromBackup }
