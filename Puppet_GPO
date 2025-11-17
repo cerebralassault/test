@@ -1,0 +1,185 @@
+Import-Module GroupPolicy -ErrorAction Stop
+
+# Prompt for GPO name
+$GpoName = Read-Host "Enter the GPO name to update"
+
+$gpo = Get-GPO -Name $GpoName -ErrorAction Stop
+
+Write-Host "Updating registry policy settings..." -ForegroundColor Cyan
+
+function Set-GpoDword {
+    param(
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][string]$Key,
+        [Parameter(Mandatory = $true)][string]$ValueName,
+        [Parameter(Mandatory = $true)][int]$Value
+    )
+
+    Set-GPRegistryValue -Name $Name -Key $Key -ValueName $ValueName -Type DWord -Value $Value
+}
+
+# -------------------------------------------------------------------
+# REGISTRY-BASED SECURITY SETTINGS
+# -------------------------------------------------------------------
+
+# Interactive logon: Require smart card → Disabled
+Set-GpoDword -Name $GpoName `
+    -Key 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' `
+    -ValueName 'ScForceOption' `
+    -Value 0
+
+# Limit blank passwords to console logon only → Enabled
+Set-GpoDword -Name $GpoName `
+    -Key 'HKLM\SYSTEM\CurrentControlSet\Control\Lsa' `
+    -ValueName 'LimitBlankPasswordUse' `
+    -Value 1
+
+# Microsoft network server: Disconnect client when logon hours expire → Enabled
+Set-GpoDword -Name $GpoName `
+    -Key 'HKLM\SYSTEM\CurrentControlSet\Services\LanManServer\Parameters' `
+    -ValueName 'EnableForcedLogoff' `
+    -Value 1
+
+# Network security: Force logoff when logon hours expire → Enabled
+Set-GpoDword -Name $GpoName `
+    -Key 'HKLM\SYSTEM\CurrentControlSet\Control\Lsa' `
+    -ValueName 'ForceLogoffWhenLogonHoursExpire' `
+    -Value 1
+
+# Interactive logon: Machine inactivity limit → 7200 seconds
+Set-GpoDword -Name $GpoName `
+    -Key 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' `
+    -ValueName 'InactivityTimeoutSecs' `
+    -Value 7200
+
+# Kerberos: Allowed encryption types → AES128 + AES256 (STIG superset)
+Set-GpoDword -Name $GpoName `
+    -Key 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Kerberos\Parameters' `
+    -ValueName 'SupportedEncryptionTypes' `
+    -Value 0x7FFFFFF8
+
+# UAC: Run all administrators in Admin Approval Mode → Disabled
+Set-GpoDword -Name $GpoName `
+    -Key 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' `
+    -ValueName 'EnableLUA' `
+    -Value 0
+
+# FIPS: Disabled (Enabled=0)
+Set-GpoDword -Name $GpoName `
+    -Key 'HKLM\SYSTEM\CurrentControlSet\Control\Lsa\FIPSAlgorithmPolicy' `
+    -ValueName 'Enabled' `
+    -Value 0
+
+Write-Host "Registry policy settings applied." -ForegroundColor Green
+
+# -------------------------------------------------------------------
+# GROUP POLICY PREFERENCES: LOCAL ADMINISTRATORS GROUP
+# -------------------------------------------------------------------
+
+Write-Host "Updating Local Administrators group..." -ForegroundColor Cyan
+
+# Build the path to Groups.xml
+$gpoPath = "\\$($gpo.DomainName)\SYSVOL\$($gpo.DomainName)\Policies\{$($gpo.Id)}\Machine\Preferences\Groups"
+$xmlPath = Join-Path $gpoPath "Groups.xml"
+
+# Ensure folder exists
+if (!(Test-Path $gpoPath)) {
+    New-Item -Path $gpoPath -ItemType Directory -Force | Out-Null
+}
+
+# Load existing XML or create new
+if (Test-Path $xmlPath) {
+    [xml]$xml = Get-Content $xmlPath
+} else {
+    $xml = New-Object xml
+    $null = $xml.AppendChild($xml.CreateElement("Groups"))
+}
+
+# Administrators group SID (well-known)
+$adminSid = "S-1-5-32-544"
+
+# Find or create the Administrators GPP entry
+$groupNode = $xml.Groups.Group | Where-Object { $_.Properties.sid -eq $adminSid }
+
+if (-not $groupNode) {
+    $groupNode = $xml.CreateElement("Group")
+    $groupNode.SetAttribute("clsid", "{6C0E44F7-52C4-11D3-8D5A-00105A1F8304}")
+    $groupNode.SetAttribute("name", "Administrators")
+    $groupNode.SetAttribute("uid", [guid]::NewGuid().ToString())
+    $groupNode.SetAttribute("changed", "true")
+
+    $props = $xml.CreateElement("Properties")
+    $props.SetAttribute("action", "U")
+    $props.SetAttribute("newName", "Administrators")
+    $props.SetAttribute("sid", $adminSid)
+    $groupNode.AppendChild($props) | Out-Null
+
+    $members = $xml.CreateElement("Members")
+    $groupNode.AppendChild($members) | Out-Null
+
+    $xml.Groups.AppendChild($groupNode) | Out-Null
+}
+
+$membersNode = $groupNode.Members
+
+if (-not $membersNode) {
+    $membersNode = $xml.CreateElement("Members")
+    $groupNode.AppendChild($membersNode) | Out-Null
+}
+
+if (-not $script:sidCache) {
+    $script:sidCache = @{}
+}
+
+function Get-AccountSid {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$AccountName
+    )
+
+    if ($script:sidCache.ContainsKey($AccountName)) {
+        return $script:sidCache[$AccountName]
+    }
+
+    try {
+        $nt = New-Object System.Security.Principal.NTAccount($AccountName)
+        $sid = $nt.Translate([System.Security.Principal.SecurityIdentifier]).Value
+        $script:sidCache[$AccountName] = $sid
+        return $sid
+    } catch {
+        throw "Failed to resolve SID for '$AccountName': $_"
+    }
+}
+
+function Add-GppMember {
+    param($AccountName)
+
+    $sid = Get-AccountSid -AccountName $AccountName
+
+    if ($membersNode.Member | Where-Object { $_.sid -eq $sid -or $_.name -eq $AccountName }) {
+        return
+    }
+
+    $m = $membersNode.OwnerDocument.CreateElement("Member")
+    $m.SetAttribute("action","ADD")
+    $m.SetAttribute("name",$AccountName)
+    $m.SetAttribute("sid",$sid)
+    $m.SetAttribute("userContext","0")
+    $m.SetAttribute("runAs","0")
+    $m.SetAttribute("delete","0")
+    $membersNode.AppendChild($m) | Out-Null
+}
+
+# ADD the accounts (skip the 3rd one from image)
+Add-GppMember "BPAAdmin"
+Add-GppMember "DRE\roleEPUDCOServerOperations"
+Add-GppMember "DRE\vscei-app-00009w-LA"
+
+# Save XML
+$xml.Save($xmlPath)
+
+Write-Host "Administrators group updated." -ForegroundColor Green
+
+# -------------------------------------------------------------------
+
+Write-Host "All updates to GPO '$GpoName' complete." -ForegroundColor Yellow
