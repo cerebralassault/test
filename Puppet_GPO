@@ -1,137 +1,10 @@
+# PowerShell Script to Apply GPO Settings Correctly
+# Run as Domain Admin on a machine with RSAT/GroupPolicy module
+
 Import-Module GroupPolicy -ErrorAction Stop
 
-# Prompt for GPO name
 $GpoName = Read-Host "Enter the GPO name to update"
-
 $gpo = Get-GPO -Name $GpoName -ErrorAction Stop
-
-$policyRoot = "\\$($gpo.DomainName)\SYSVOL\$($gpo.DomainName)\Policies\{$($gpo.Id)}"
-$machinePath = Join-Path $policyRoot "Machine"
-$groupsPath = Join-Path $machinePath "Preferences\Groups"
-$seceditPath = Join-Path $machinePath "Microsoft\Windows NT\SecEdit"
-$gptTmplPath = Join-Path $seceditPath "GptTmpl.inf"
-
-$script:SecurityTemplateState = @{
-    Initialized = $false
-    Path        = $gptTmplPath
-    Before      = @()
-    After       = @()
-    Values      = [ordered]@{}
-    Dirty       = $false
-}
-
-function Initialize-SecurityTemplate {
-    if ($script:SecurityTemplateState.Initialized) {
-        return
-    }
-
-    if (!(Test-Path $seceditPath)) {
-        New-Item -Path $seceditPath -ItemType Directory -Force | Out-Null
-    }
-
-    if (!(Test-Path $script:SecurityTemplateState.Path)) {
-        @(
-            '[Version]',
-            'signature="$CHICAGO$"',
-            'Revision=1',
-            '',
-            '[Registry Values]'
-        ) | Set-Content -Path $script:SecurityTemplateState.Path -Encoding Unicode
-    }
-
-    $lines = Get-Content -Path $script:SecurityTemplateState.Path -Encoding Unicode
-    $registryStart = -1
-
-    for ($i = 0; $i -lt $lines.Count; $i++) {
-        if ($lines[$i].Trim().ToLower() -eq '[registry values]') {
-            $registryStart = $i
-            break
-        }
-    }
-
-    if ($registryStart -lt 0) {
-        $before = $lines
-        if ($before.Count -eq 0 -or $before[-1].Trim() -ne '') {
-            $before += ''
-        }
-        $before += '[Registry Values]'
-        $script:SecurityTemplateState.Before = $before
-        $script:SecurityTemplateState.After = @()
-        $registryLines = @()
-    } else {
-        $script:SecurityTemplateState.Before = $lines[0..$registryStart]
-
-        $registryEnd = $lines.Count
-        for ($j = $registryStart + 1; $j -lt $lines.Count; $j++) {
-            if ($lines[$j] -match '^\[.+\]') {
-                $registryEnd = $j
-                break
-            }
-        }
-
-        if ($registryEnd -gt $registryStart + 1) {
-            $registryLines = $lines[($registryStart + 1)..($registryEnd - 1)]
-        } else {
-            $registryLines = @()
-        }
-
-        if ($registryEnd -lt $lines.Count) {
-            $script:SecurityTemplateState.After = $lines[$registryEnd..($lines.Count - 1)]
-        } else {
-            $script:SecurityTemplateState.After = @()
-        }
-    }
-
-    foreach ($line in $registryLines) {
-        $trimmed = $line.Trim()
-        if (-not $trimmed) { continue }
-        if ($trimmed.StartsWith(';')) { continue }
-
-        $parts = $trimmed.Split('=', 2)
-        if ($parts.Count -eq 2) {
-            $script:SecurityTemplateState.Values[$parts[0].Trim()] = $parts[1].Trim()
-        }
-    }
-
-    $script:SecurityTemplateState.Initialized = $true
-}
-
-function Set-SecurityTemplateDword {
-    param(
-        [Parameter(Mandatory = $true)][string]$Key,
-        [Parameter(Mandatory = $true)][string]$ValueName,
-        [Parameter(Mandatory = $true)][int]$Value
-    )
-
-    Initialize-SecurityTemplate
-
-    $relativeKey = $Key -replace '^HKLM\\',''
-    $entryName = "MACHINE\$relativeKey\$ValueName"
-    $script:SecurityTemplateState.Values[$entryName] = "4,$Value"
-    $script:SecurityTemplateState.Dirty = $true
-}
-
-function Save-SecurityTemplate {
-    if (-not $script:SecurityTemplateState.Initialized -or -not $script:SecurityTemplateState.Dirty) {
-        return
-    }
-
-    $output = @()
-    $output += $script:SecurityTemplateState.Before
-
-    foreach ($item in $script:SecurityTemplateState.Values.GetEnumerator() | Sort-Object Name) {
-        $output += "$($item.Name)=$($item.Value)"
-    }
-
-    if ($script:SecurityTemplateState.After.Count -gt 0 -and ($output.Count -eq 0 -or $output[-1].Trim() -ne '')) {
-        $output += ''
-    }
-
-    $output += $script:SecurityTemplateState.After
-    Set-Content -Path $script:SecurityTemplateState.Path -Value $output -Encoding Unicode
-}
-
-Write-Host "Updating registry policy settings..." -ForegroundColor Cyan
 
 function Set-GpoDword {
     param(
@@ -140,193 +13,86 @@ function Set-GpoDword {
         [Parameter(Mandatory = $true)][string]$ValueName,
         [Parameter(Mandatory = $true)][int]$Value
     )
-
     Set-GPRegistryValue -Name $Name -Key $Key -ValueName $ValueName -Type DWord -Value $Value
-    Set-SecurityTemplateDword -Key $Key -ValueName $ValueName -Value $Value
 }
 
-# -------------------------------------------------------------------
-# REGISTRY-BASED SECURITY SETTINGS
-# -------------------------------------------------------------------
+# Apply registry-based settings (Security Options-style)
+Set-GpoDword -Name $GpoName -Key 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' -ValueName 'ScForceOption' -Value 0
+Set-GpoDword -Name $GpoName -Key 'HKLM\SYSTEM\CurrentControlSet\Control\Lsa' -ValueName 'LimitBlankPasswordUse' -Value 1
+Set-GpoDword -Name $GpoName -Key 'HKLM\SYSTEM\CurrentControlSet\Services\LanManServer\Parameters' -ValueName 'EnableForcedLogoff' -Value 1
+Set-GpoDword -Name $GpoName -Key 'HKLM\SYSTEM\CurrentControlSet\Control\Lsa' -ValueName 'ForceLogoffWhenLogonHoursExpire' -Value 1
+Set-GpoDword -Name $GpoName -Key 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' -ValueName 'InactivityTimeoutSecs' -Value 7200
+Set-GpoDword -Name $GpoName -Key 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Kerberos\Parameters' -ValueName 'SupportedEncryptionTypes' -Value 0x7FFFFFF8
+Set-GpoDword -Name $GpoName -Key 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' -ValueName 'EnableLUA' -Value 0
+Set-GpoDword -Name $GpoName -Key 'HKLM\SYSTEM\CurrentControlSet\Control\Lsa\FIPSAlgorithmPolicy' -ValueName 'Enabled' -Value 0
 
-# Interactive logon: Require smart card → Disabled
-Set-GpoDword -Name $GpoName `
-    -Key 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' `
-    -ValueName 'ScForceOption' `
-    -Value 0
+# Update Local Administrators group via Preferences
+$adminSid = 'S-1-5-32-544'
+$domain = $gpo.DomainName
+$gpoId = $gpo.Id.ToString()
+$gpoPath = "\\$domain\SYSVOL\$domain\Policies\{$gpoId}\Machine\Preferences\Groups"
+$xmlPath = Join-Path $gpoPath 'Groups.xml'
 
-# Limit blank passwords to console logon only → Enabled
-Set-GpoDword -Name $GpoName `
-    -Key 'HKLM\SYSTEM\CurrentControlSet\Control\Lsa' `
-    -ValueName 'LimitBlankPasswordUse' `
-    -Value 1
+if (!(Test-Path $gpoPath)) { New-Item -Path $gpoPath -ItemType Directory -Force | Out-Null }
 
-# Microsoft network server: Disconnect client when logon hours expire → Enabled
-Set-GpoDword -Name $GpoName `
-    -Key 'HKLM\SYSTEM\CurrentControlSet\Services\LanManServer\Parameters' `
-    -ValueName 'EnableForcedLogoff' `
-    -Value 1
+[xml]$xml = if (Test-Path $xmlPath) { Get-Content $xmlPath -Raw } else { $doc = New-Object xml; $doc.AppendChild($doc.CreateElement('Groups')) | Out-Null; $doc }
 
-# Network security: Force logoff when logon hours expire → Enabled
-Set-GpoDword -Name $GpoName `
-    -Key 'HKLM\SYSTEM\CurrentControlSet\Control\Lsa' `
-    -ValueName 'ForceLogoffWhenLogonHoursExpire' `
-    -Value 1
+$groupsNode = $xml.SelectSingleNode('/Groups')
 
-# Interactive logon: Machine inactivity limit → 7200 seconds
-Set-GpoDword -Name $GpoName `
-    -Key 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' `
-    -ValueName 'InactivityTimeoutSecs' `
-    -Value 7200
-
-# Kerberos: Allowed encryption types → AES128 + AES256 (STIG superset)
-Set-GpoDword -Name $GpoName `
-    -Key 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Kerberos\Parameters' `
-    -ValueName 'SupportedEncryptionTypes' `
-    -Value 0x7FFFFFF8
-
-# UAC: Run all administrators in Admin Approval Mode → Disabled
-Set-GpoDword -Name $GpoName `
-    -Key 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' `
-    -ValueName 'EnableLUA' `
-    -Value 0
-
-# FIPS: Disabled (Enabled=0)
-Set-GpoDword -Name $GpoName `
-    -Key 'HKLM\SYSTEM\CurrentControlSet\Control\Lsa\FIPSAlgorithmPolicy' `
-    -ValueName 'Enabled' `
-    -Value 0
-
-Save-SecurityTemplate
-
-Write-Host "Registry policy settings applied." -ForegroundColor Green
-
-# -------------------------------------------------------------------
-# GROUP POLICY PREFERENCES: LOCAL ADMINISTRATORS GROUP
-# -------------------------------------------------------------------
-
-Write-Host "Updating Local Administrators group..." -ForegroundColor Cyan
-
-# Build the path to Groups.xml
-$xmlPath = Join-Path $groupsPath "Groups.xml"
-
-# Ensure folder exists
-if (!(Test-Path $groupsPath)) {
-    New-Item -Path $groupsPath -ItemType Directory -Force | Out-Null
-}
-
-# Load existing XML or create new
-if (Test-Path $xmlPath) {
-    [xml]$xml = Get-Content -Path $xmlPath -Raw
-} else {
-    $xml = New-Object System.Xml.XmlDocument
-    $null = $xml.AppendChild($xml.CreateElement("Groups"))
-}
-
-$groupsNode = $xml.SelectSingleNode("/Groups")
-if (-not $groupsNode) {
-    $groupsNode = $xml.CreateElement("Groups")
-    $null = $xml.AppendChild($groupsNode)
-}
-
-# Administrators group SID (well-known)
-$adminSid = "S-1-5-32-544"
-
-# Find or create the Administrators GPP entry
-$groupNode = $groupsNode.SelectNodes("Group") | Where-Object { $_.Properties.sid -eq $adminSid } | Select-Object -First 1
-
-if (-not $groupNode) {
-    $groupNode = $xml.CreateElement("Group")
-    $groupNode.SetAttribute("clsid", "{6C0E44F7-52C4-11D3-8D5A-00105A1F8304}")
-    $groupNode.SetAttribute("name", "Administrators")
-    $groupNode.SetAttribute("uid", [guid]::NewGuid().ToString())
-    $groupNode.SetAttribute("changed", "true")
-
-    $props = $xml.CreateElement("Properties")
-    $props.SetAttribute("action", "U")
-    $props.SetAttribute("newName", "Administrators")
-    $props.SetAttribute("sid", $adminSid)
-    $groupNode.AppendChild($props) | Out-Null
-
-    $members = $xml.CreateElement("Members")
-    $groupNode.AppendChild($members) | Out-Null
-
-    $groupsNode.AppendChild($groupNode) | Out-Null
-}
-
-$membersNode = $groupNode.SelectSingleNode("Members")
-
-if (-not $membersNode) {
-    $membersNode = $xml.CreateElement("Members")
-    $groupNode.AppendChild($membersNode) | Out-Null
-}
-
-if (-not $script:sidCache) {
-    $script:sidCache = @{}
-}
-
-function Get-AccountSid {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$AccountName
-    )
-
-    $AccountName = $AccountName.Trim()
-
-    if ($AccountName -match '^S-\d-(\d+-){1,14}\d+$') {
-        $script:sidCache[$AccountName] = $AccountName
-        return $AccountName
-    }
-
-    if ($script:sidCache.ContainsKey($AccountName)) {
-        return $script:sidCache[$AccountName]
-    }
-
+function Add-GroupMember {
+    param([string]$AccountName)
     try {
-        $nt = New-Object System.Security.Principal.NTAccount($AccountName)
-        $sid = $nt.Translate([System.Security.Principal.SecurityIdentifier]).Value
-        $script:sidCache[$AccountName] = $sid
-        return $sid
+        $sid = ([System.Security.Principal.NTAccount]$AccountName).Translate([System.Security.Principal.SecurityIdentifier]).Value
     } catch {
-        throw "Failed to resolve SID for '$AccountName': $_"
-    }
-}
-
-function Add-GppMember {
-    param([Parameter(Mandatory = $true)][string]$AccountName)
-
-    try {
-        $sid = Get-AccountSid -AccountName $AccountName
-    } catch {
-        Write-Warning $_
+        Write-Warning "Could not resolve SID for $AccountName. Skipping."
         return
     }
 
-    $existingMember = $membersNode.SelectNodes("Member") | Where-Object { $_.sid -eq $sid -or $_.name -eq $AccountName } | Select-Object -First 1
-    if ($existingMember) {
-        return
+    $groupNode = $groupsNode.SelectSingleNode("Group[Properties/@sid='$adminSid']")
+    if (-not $groupNode) {
+        $groupNode = $xml.CreateElement('Group')
+        $groupNode.SetAttribute('clsid', '{6C0E44F7-52C4-11D3-8D5A-00105A1F8304}')
+        $groupNode.SetAttribute('name', 'Administrators')
+        $groupNode.SetAttribute('uid', [guid]::NewGuid().ToString())
+        $groupNode.SetAttribute('changed', 'true')
+
+        $props = $xml.CreateElement('Properties')
+        $props.SetAttribute('action', 'U')
+        $props.SetAttribute('newName', 'Administrators')
+        $props.SetAttribute('sid', $adminSid)
+        $groupNode.AppendChild($props)
+
+        $members = $xml.CreateElement('Members')
+        $groupNode.AppendChild($members)
+        $groupsNode.AppendChild($groupNode)
     }
 
-    $m = $membersNode.OwnerDocument.CreateElement("Member")
-    $m.SetAttribute("action","ADD")
-    $m.SetAttribute("name",$AccountName)
-    $m.SetAttribute("sid",$sid)
-    $m.SetAttribute("userContext","0")
-    $m.SetAttribute("runAs","0")
-    $m.SetAttribute("delete","0")
-    $membersNode.AppendChild($m) | Out-Null
+    $membersNode = $groupNode.SelectSingleNode('Members')
+    if (-not $membersNode) {
+        $membersNode = $xml.CreateElement('Members')
+        $groupNode.AppendChild($membersNode)
+    }
+
+    if ($membersNode.SelectNodes("Member[@sid='$sid']").Count -eq 0) {
+        $m = $xml.CreateElement('Member')
+        $m.SetAttribute('action', 'ADD')
+        $m.SetAttribute('name', $AccountName)
+        $m.SetAttribute('sid', $sid)
+        $m.SetAttribute('userContext', '0')
+        $m.SetAttribute('runAs', '0')
+        $m.SetAttribute('delete', '0')
+        $membersNode.AppendChild($m) | Out-Null
+    }
 }
 
-# ADD the accounts (skip the 3rd one from image)
-Add-GppMember "BPAAdmin"
-Add-GppMember "DRE\roleEPUDCOServerOperations"
-Add-GppMember "DRE\vscei-app-00009w-LA"
+Add-GroupMember "BPAAdmin"
+Add-GroupMember "DRE\roleEPUDCOServerOperations"
+Add-GroupMember "DRE\vscei-app-00009w-LA"
 
-# Save XML
 $xml.Save($xmlPath)
 
-Write-Host "Administrators group updated." -ForegroundColor Green
+# Force GPO version increment
+Set-GPRegistryValue -Name $GpoName -Key 'HKLM\Software\TempGPO' -ValueName 'Trigger' -Type DWord -Value 1
+Remove-GPRegistryValue -Name $GpoName -Key 'HKLM\Software\TempGPO' -ValueName 'Trigger'
 
-# -------------------------------------------------------------------
-
-Write-Host "All updates to GPO '$GpoName' complete." -ForegroundColor Yellow
+Write-Host "GPO '$GpoName' updated with registry and local admin settings." -ForegroundColor Green
