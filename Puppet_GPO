@@ -5,6 +5,132 @@ $GpoName = Read-Host "Enter the GPO name to update"
 
 $gpo = Get-GPO -Name $GpoName -ErrorAction Stop
 
+$policyRoot = "\\$($gpo.DomainName)\SYSVOL\$($gpo.DomainName)\Policies\{$($gpo.Id)}"
+$machinePath = Join-Path $policyRoot "Machine"
+$groupsPath = Join-Path $machinePath "Preferences\Groups"
+$seceditPath = Join-Path $machinePath "Microsoft\Windows NT\SecEdit"
+$gptTmplPath = Join-Path $seceditPath "GptTmpl.inf"
+
+$script:SecurityTemplateState = @{
+    Initialized = $false
+    Path        = $gptTmplPath
+    Before      = @()
+    After       = @()
+    Values      = [ordered]@{}
+    Dirty       = $false
+}
+
+function Initialize-SecurityTemplate {
+    if ($script:SecurityTemplateState.Initialized) {
+        return
+    }
+
+    if (!(Test-Path $seceditPath)) {
+        New-Item -Path $seceditPath -ItemType Directory -Force | Out-Null
+    }
+
+    if (!(Test-Path $script:SecurityTemplateState.Path)) {
+        @(
+            '[Version]',
+            'signature="$CHICAGO$"',
+            'Revision=1',
+            '',
+            '[Registry Values]'
+        ) | Set-Content -Path $script:SecurityTemplateState.Path -Encoding Unicode
+    }
+
+    $lines = Get-Content -Path $script:SecurityTemplateState.Path -Encoding Unicode
+    $registryStart = -1
+
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i].Trim().ToLower() -eq '[registry values]') {
+            $registryStart = $i
+            break
+        }
+    }
+
+    if ($registryStart -lt 0) {
+        $before = $lines
+        if ($before.Count -eq 0 -or $before[-1].Trim() -ne '') {
+            $before += ''
+        }
+        $before += '[Registry Values]'
+        $script:SecurityTemplateState.Before = $before
+        $script:SecurityTemplateState.After = @()
+        $registryLines = @()
+    } else {
+        $script:SecurityTemplateState.Before = $lines[0..$registryStart]
+
+        $registryEnd = $lines.Count
+        for ($j = $registryStart + 1; $j -lt $lines.Count; $j++) {
+            if ($lines[$j] -match '^\[.+\]') {
+                $registryEnd = $j
+                break
+            }
+        }
+
+        if ($registryEnd -gt $registryStart + 1) {
+            $registryLines = $lines[($registryStart + 1)..($registryEnd - 1)]
+        } else {
+            $registryLines = @()
+        }
+
+        if ($registryEnd -lt $lines.Count) {
+            $script:SecurityTemplateState.After = $lines[$registryEnd..($lines.Count - 1)]
+        } else {
+            $script:SecurityTemplateState.After = @()
+        }
+    }
+
+    foreach ($line in $registryLines) {
+        $trimmed = $line.Trim()
+        if (-not $trimmed) { continue }
+        if ($trimmed.StartsWith(';')) { continue }
+
+        $parts = $trimmed.Split('=', 2)
+        if ($parts.Count -eq 2) {
+            $script:SecurityTemplateState.Values[$parts[0].Trim()] = $parts[1].Trim()
+        }
+    }
+
+    $script:SecurityTemplateState.Initialized = $true
+}
+
+function Set-SecurityTemplateDword {
+    param(
+        [Parameter(Mandatory = $true)][string]$Key,
+        [Parameter(Mandatory = $true)][string]$ValueName,
+        [Parameter(Mandatory = $true)][int]$Value
+    )
+
+    Initialize-SecurityTemplate
+
+    $relativeKey = $Key -replace '^HKLM\\',''
+    $entryName = "MACHINE\$relativeKey\$ValueName"
+    $script:SecurityTemplateState.Values[$entryName] = "4,$Value"
+    $script:SecurityTemplateState.Dirty = $true
+}
+
+function Save-SecurityTemplate {
+    if (-not $script:SecurityTemplateState.Initialized -or -not $script:SecurityTemplateState.Dirty) {
+        return
+    }
+
+    $output = @()
+    $output += $script:SecurityTemplateState.Before
+
+    foreach ($item in $script:SecurityTemplateState.Values.GetEnumerator() | Sort-Object Name) {
+        $output += "$($item.Name)=$($item.Value)"
+    }
+
+    if ($script:SecurityTemplateState.After.Count -gt 0 -and ($output.Count -eq 0 -or $output[-1].Trim() -ne '')) {
+        $output += ''
+    }
+
+    $output += $script:SecurityTemplateState.After
+    Set-Content -Path $script:SecurityTemplateState.Path -Value $output -Encoding Unicode
+}
+
 Write-Host "Updating registry policy settings..." -ForegroundColor Cyan
 
 function Set-GpoDword {
@@ -16,6 +142,7 @@ function Set-GpoDword {
     )
 
     Set-GPRegistryValue -Name $Name -Key $Key -ValueName $ValueName -Type DWord -Value $Value
+    Set-SecurityTemplateDword -Key $Key -ValueName $ValueName -Value $Value
 }
 
 # -------------------------------------------------------------------
@@ -70,6 +197,8 @@ Set-GpoDword -Name $GpoName `
     -ValueName 'Enabled' `
     -Value 0
 
+Save-SecurityTemplate
+
 Write-Host "Registry policy settings applied." -ForegroundColor Green
 
 # -------------------------------------------------------------------
@@ -79,12 +208,11 @@ Write-Host "Registry policy settings applied." -ForegroundColor Green
 Write-Host "Updating Local Administrators group..." -ForegroundColor Cyan
 
 # Build the path to Groups.xml
-$gpoPath = "\\$($gpo.DomainName)\SYSVOL\$($gpo.DomainName)\Policies\{$($gpo.Id)}\Machine\Preferences\Groups"
-$xmlPath = Join-Path $gpoPath "Groups.xml"
+$xmlPath = Join-Path $groupsPath "Groups.xml"
 
 # Ensure folder exists
-if (!(Test-Path $gpoPath)) {
-    New-Item -Path $gpoPath -ItemType Directory -Force | Out-Null
+if (!(Test-Path $groupsPath)) {
+    New-Item -Path $groupsPath -ItemType Directory -Force | Out-Null
 }
 
 # Load existing XML or create new
