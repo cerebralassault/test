@@ -89,17 +89,23 @@ if (!(Test-Path $gpoPath)) {
 
 # Load existing XML or create new
 if (Test-Path $xmlPath) {
-    [xml]$xml = Get-Content $xmlPath
+    [xml]$xml = Get-Content -Path $xmlPath -Raw
 } else {
-    $xml = New-Object xml
+    $xml = New-Object System.Xml.XmlDocument
     $null = $xml.AppendChild($xml.CreateElement("Groups"))
+}
+
+$groupsNode = $xml.SelectSingleNode("/Groups")
+if (-not $groupsNode) {
+    $groupsNode = $xml.CreateElement("Groups")
+    $null = $xml.AppendChild($groupsNode)
 }
 
 # Administrators group SID (well-known)
 $adminSid = "S-1-5-32-544"
 
 # Find or create the Administrators GPP entry
-$groupNode = $xml.Groups.Group | Where-Object { $_.Properties.sid -eq $adminSid }
+$groupNode = $groupsNode.SelectNodes("Group") | Where-Object { $_.Properties.sid -eq $adminSid } | Select-Object -First 1
 
 if (-not $groupNode) {
     $groupNode = $xml.CreateElement("Group")
@@ -117,10 +123,10 @@ if (-not $groupNode) {
     $members = $xml.CreateElement("Members")
     $groupNode.AppendChild($members) | Out-Null
 
-    $xml.Groups.AppendChild($groupNode) | Out-Null
+    $groupsNode.AppendChild($groupNode) | Out-Null
 }
 
-$membersNode = $groupNode.Members
+$membersNode = $groupNode.SelectSingleNode("Members")
 
 if (-not $membersNode) {
     $membersNode = $xml.CreateElement("Members")
@@ -137,6 +143,13 @@ function Get-AccountSid {
         [string]$AccountName
     )
 
+    $AccountName = $AccountName.Trim()
+
+    if ($AccountName -match '^S-\d-(\d+-){1,14}\d+$') {
+        $script:sidCache[$AccountName] = $AccountName
+        return $AccountName
+    }
+
     if ($script:sidCache.ContainsKey($AccountName)) {
         return $script:sidCache[$AccountName]
     }
@@ -152,11 +165,17 @@ function Get-AccountSid {
 }
 
 function Add-GppMember {
-    param($AccountName)
+    param([Parameter(Mandatory = $true)][string]$AccountName)
 
-    $sid = Get-AccountSid -AccountName $AccountName
+    try {
+        $sid = Get-AccountSid -AccountName $AccountName
+    } catch {
+        Write-Warning $_
+        return
+    }
 
-    if ($membersNode.Member | Where-Object { $_.sid -eq $sid -or $_.name -eq $AccountName }) {
+    $existingMember = $membersNode.SelectNodes("Member") | Where-Object { $_.sid -eq $sid -or $_.name -eq $AccountName } | Select-Object -First 1
+    if ($existingMember) {
         return
     }
 
