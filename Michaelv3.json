@@ -1,31 +1,61 @@
 {
-  "Name": "Linux Systems Monitoring & Update Operator",
-  "IsCustom": true,
-  "Description": "Allows monitoring and patch management on Azure Linux VMs and Arc-enabled servers. Includes start/restart/deallocate, diagnostics, and patch assessment/install actions for both VM types.",
-  "Actions": [
-    "Microsoft.Compute/virtualMachines/read",
-    "Microsoft.Compute/virtualMachines/instanceView/read",
-    "Microsoft.Compute/virtualMachines/retrieveBootDiagnosticsData/action",
-    "Microsoft.Compute/virtualMachines/start/action",
-    "Microsoft.Compute/virtualMachines/restart/action",
-    "Microsoft.Compute/virtualMachines/deallocate/action",
-    "Microsoft.Compute/virtualMachines/assessPatches/action",
-    "Microsoft.Compute/virtualMachines/installPatches/action",
-    "Microsoft.Compute/virtualMachines/patchAssessmentResults/latest/read",
-    "Microsoft.Compute/virtualMachines/patchInstallationResults/read",
-    "Microsoft.Compute/virtualMachines/providers/Microsoft.Insights/diagnosticSettings/read",
-    "Microsoft.Compute/virtualMachines/providers/Microsoft.Insights/diagnosticSettings/write",
-    "Microsoft.Compute/virtualMachines/providers/Microsoft.Insights/logDefinitions/read",
-    "Microsoft.Compute/virtualMachines/providers/Microsoft.Insights/metricDefinitions/read",
-    "Microsoft.Resources/subscriptions/resourceGroups/read",
-    "Microsoft.HybridCompute/machines/read",
-    "Microsoft.HybridCompute/machines/assessPatches/action",
-    "Microsoft.HybridCompute/machines/installPatches/action",
-    "Microsoft.HybridCompute/machines/patchAssessmentResults/read",
-    "Microsoft.HybridCompute/machines/patchInstallationResults/read"
-  ],
-  "NotActions": [],
-  "AssignableScopes": [
-    "/subscriptions/<subscriptionId>/resourceGroups/<resourceGroupName>"
-  ]
+  "properties": {
+    "roleName": "Windows VM Monitoring & Configuration Operator",
+    "description": "Provides monitoring and basic start/restart access for Windows VMs. Includes diagnostics (boot and instance view) and tag editing, but not patching or deletion.",
+    "assignableScopes": [
+      "/subscriptions/RG-WIN-DEV-001",
+      "/subscriptions/RG-WIN-TEST-001",
+      "/subscriptions/RG-WIN-PROD-001",
+      "/subscriptions/RG-WIN-DMZ-001"
+    ],
+    "permissions": [
+      {
+        "actions": [
+          "Microsoft.HybridCompute/licenses/read",
+          "Microsoft.HybridCompute/locations/notifyExtensionStatus/action",
+          "Microsoft.HybridCompute/locations/operationResults/read",
+          "Microsoft.HybridCompute/locations/operations/read",
+          "Microsoft.HybridCompute/locations/updateCenterOperationResults/read",
+          "Microsoft.HybridCompute/machines/assessPatches/action",
+          "Microsoft.HybridCompute/machines/delete",
+          "Microsoft.HybridCompute/machines/extensions/delete",
+          "Microsoft.HybridCompute/machines/extensions/read",
+          "Microsoft.HybridCompute/machines/extensions/write",
+          "Microsoft.HybridCompute/machines/hybridIdentityMetadata/read",
+          "Microsoft.HybridCompute/machines/installPatches/action",
+          "Microsoft.HybridCompute/machines/patchAssessmentsResults/read",
+          "Microsoft.HybridCompute/machines/patchAssessmentsResults/softwarePatches/read",
+          "Microsoft.HybridCompute/machines/patchInstallationResults/read",
+          "Microsoft.HybridCompute/machines/patchInstallationResults/softwarePatches/read",
+          "Microsoft.HybridCompute/machines/read",
+          "Microsoft.HybridCompute/machines/runCommands/delete",
+          "Microsoft.HybridCompute/machines/runCommands/read",
+          "Microsoft.HybridCompute/machines/runCommands/write",
+          "Microsoft.HybridCompute/machines/upgradeExtensions/action",
+          "Microsoft.HybridCompute/networkConfigurations/read",
+          "Microsoft.HybridCompute/operations/read",
+          "Microsoft.HybridCompute/ostype/agentVersions/read",
+          "Microsoft.HybridCompute/settings/read",
+          "Microsoft.HybridCompute/settings/write",
+          "Microsoft.Maintenance/configurationAssignments/delete",
+          "Microsoft.Maintenance/configurationAssignments/read",
+          "Microsoft.Maintenance/configurationAssignments/updateApplied/read",
+          "Microsoft.Maintenance/configurationAssignments/write",
+          "Microsoft.Maintenance/maintenanceConfigurations/delete",
+          "Microsoft.Maintenance/maintenanceConfigurations/read",
+          "Microsoft.Maintenance/maintenanceConfigurations/write",
+          "Microsoft.Maintenance/updates/read",
+          "Microsoft.OperationalInsights/workspaces/query/read",
+          "Microsoft.Resources/tags/delete",
+          "Microsoft.Resources/tags/read",
+          "Microsoft.Resources/tags/write",
+          "Microsoft.Support/supportTickets/read",
+          "Microsoft.Support/supportTickets/write"
+        ],
+        "notActions": [],
+        "dataActions": [],
+        "notDataActions": []
+      }
+    ]
+  }
 }
