@@ -1,34 +1,58 @@
 {
-  "Name": "ResourceGroup_MonitorHealthUpdate_Admin",
-  "IsCustom": true,
-  "Description": "Mixed Windows/Linux monitoring and update role. Includes diagnostics, health status, and patch assessment/install for Azure and Arc machines, but no write access to resources or tags.",
-  "Actions": [
-    "Microsoft.Compute/virtualMachines/read",
-    "Microsoft.Compute/virtualMachines/instanceView/read",
-    "Microsoft.Compute/virtualMachines/retrieveBootDiagnosticsData/action",
-    "Microsoft.Compute/virtualMachines/start/action",
-    "Microsoft.Compute/virtualMachines/restart/action",
-    "Microsoft.Compute/virtualMachines/deallocate/action",
-    "Microsoft.Compute/virtualMachines/assessPatches/action",
-    "Microsoft.Compute/virtualMachines/installPatches/action",
-    "Microsoft.Compute/virtualMachines/patchAssessmentResults/latest/read",
-    "Microsoft.Compute/virtualMachines/patchInstallationResults/read",
-    "Microsoft.Compute/virtualMachines/providers/Microsoft.Insights/diagnosticSettings/read",
-    "Microsoft.Compute/virtualMachines/providers/Microsoft.Insights/diagnosticSettings/write",
-    "Microsoft.Compute/virtualMachines/providers/Microsoft.Insights/logDefinitions/read",
-    "Microsoft.Compute/virtualMachines/providers/Microsoft.Insights/metricDefinitions/read",
-    "Microsoft.Resources/subscriptions/resourceGroups/read",
-    "Microsoft.Resources/tags/read",
-    "Microsoft.ResourceHealth/AvailabilityStatuses/read",
-    "Microsoft.ResourceHealth/AvailabilityStatuses/current/read",
-    "Microsoft.HybridCompute/machines/read",
-    "Microsoft.HybridCompute/machines/assessPatches/action",
-    "Microsoft.HybridCompute/machines/installPatches/action",
-    "Microsoft.HybridCompute/machines/patchAssessmentResults/read",
-    "Microsoft.HybridCompute/machines/patchInstallationResults/read"
-  ],
-  "NotActions": [],
-  "AssignableScopes": [
-    "/subscriptions/<subscriptionId>/resourceGroups/<resourceGroupName>"
-  ]
+  "properties": {
+    "roleName": "Windows VM Monitoring & Configuration Operator",
+    "description": "Provides monitoring and basic start/restart access for Windows VMs. Includes diagnostics (boot and instance view) and tag editing, but not patching or deletion.",
+    "assignableScopes": [
+      "/subscriptions/",
+      "/subscriptions/",
+      "/subscriptions/",
+      "/subscriptions/"
+    ],
+    "permissions": [
+      {
+        "actions": [
+          "Microsoft.HybridCompute/operations/read",
+          "Microsoft.HybridCompute/machines/read",
+          "Microsoft.HybridCompute/machines/upgradeExtensions/action",
+          "Microsoft.HybridCompute/machines/patchInstallationResults/read",
+          "Microsoft.HybridCompute/machines/patchInstallationResults/softwarePatches/read",
+          "Microsoft.HybridCompute/machines/patchAssessmentsResults/read",
+          "Microsoft.HybridCompute/machines/patchAssessmentsResults/softwarePatches/read",
+          "Microsoft.HybridCompute/machines/extensions/read",
+          "Microsoft.HybridCompute/machines/extensions/write",
+          "Microsoft.HybridCompute/machines/extensions/delete",
+          "Microsoft.HybridCompute/machines/licenseProfiles/read",
+          "Microsoft.HybridCompute/machines/hybridIdentityMetadata/read",
+          "Microsoft.Resources/tags/read",
+          "Microsoft.Support/supportTickets/read",
+          "Microsoft.Support/supportTickets/write",
+          "Microsoft.HybridCompute/ostype/agentVersions/read",
+          "Microsoft.HybridCompute/locations/notifyRunCommandStatus/action",
+          "Microsoft.HybridCompute/locations/notifyExtensionOperationStatus/action",
+          "Microsoft.HybridCompute/locations/operations/read",
+          "Microsoft.HybridCompute/locations/updateCenterOperationResults/read",
+          "Microsoft.HybridCompute/locations/operationResults/read",
+          "Microsoft.HybridCompute/networkConfigurations/read",
+          "Microsoft.HybridCompute/settings/read",
+          "Microsoft.HybridCompute/settings/write",
+          "Microsoft.OperationalInsights/workspaces/query/read",
+          "Microsoft.Maintenance/configurations/read",
+          "Microsoft.Maintenance/configurations/write",
+          "Microsoft.Maintenance/configurations/delete",
+          "Microsoft.Maintenance/configurationAssignments/read",
+          "Microsoft.Maintenance/configurationAssignments/write",
+          "Microsoft.Maintenance/configurationAssignments/delete",
+          "Microsoft.Maintenance/configurationAssignments/updates/read",
+          "Microsoft.Maintenance/updates/read",
+          "Microsoft.HybridCompute/machines/runCommands/read",
+          "Microsoft.HybridCompute/machines/runCommands/write",
+          "Microsoft.HybridCompute/machines/runCommands/delete",
+          "Microsoft.HybridCompute/machines/delete"
+        ],
+        "notActions": [],
+        "dataActions": [],
+        "notDataActions": []
+      }
+    ]
+  }
 }
