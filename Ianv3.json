@@ -11,7 +11,6 @@
     "permissions": [
       {
         "actions": [
-          // Windows Admin Center / basic Arc operations
           "Microsoft.HybridCompute/operations/read",
           "Microsoft.HybridCompute/machines/read",
           "Microsoft.HybridCompute/machines/hybridIdentityMetadata/read",
@@ -20,55 +19,35 @@
           "Microsoft.HybridCompute/machines/extensions/read",
           "Microsoft.HybridCompute/machines/extensions/write",
           "Microsoft.HybridCompute/machines/extensions/delete",
-
-          // Patching (assessment + installation) & classes
           "Microsoft.HybridCompute/machines/patchInstallationResults/read",
           "Microsoft.HybridCompute/machines/patchInstallationResults/softwarePatches/read",
           "Microsoft.HybridCompute/machines/patchAssessmentsResults/read",
           "Microsoft.HybridCompute/machines/patchAssessmentsResults/softwarePatches/read",
           "Microsoft.HybridCompute/machines/patchClassesWindowsServers/read",
-
-          // Run command
           "Microsoft.HybridCompute/machines/runCommands/read",
           "Microsoft.HybridCompute/machines/runCommands/write",
           "Microsoft.HybridCompute/machines/runCommands/delete",
-
-          // Operation + Update Center status
           "Microsoft.HybridCompute/locations/operations/status/read",
           "Microsoft.HybridCompute/locations/updateCenterOperationResults/read",
           "Microsoft.HybridCompute/locations/operationResults/read",
-
-          // Notifications
           "Microsoft.HybridCompute/locations/notifyExtensionOperationStatus/action",
           "Microsoft.HybridCompute/locations/notifyRunCommandOperationStatus/action",
-
-          // Agent versions & licenses
           "Microsoft.HybridCompute/ostype/agentVersions/read",
           "Microsoft.HybridCompute/licenses/read",
-
-          // Tags on the Arc resource
           "Microsoft.Resources/tags/read",
           "Microsoft.Resources/tags/write",
           "Microsoft.Resources/tags/delete",
-
-          // Support tickets
           "Microsoft.Support/supportTickets/read",
           "Microsoft.Support/supportTickets/write",
-
-          // Network configs, Arc settings, logs workspace
           "Microsoft.HybridCompute/networkConfigurations/read",
           "Microsoft.HybridCompute/settings/read",
           "Microsoft.HybridCompute/settings/write",
           "Microsoft.OperationalInsights/workspaces/query/read",
-
-          // Maintenance configs / assignments (Scheduled Patching visibility)
           "Microsoft.Maintenance/maintenanceConfigurations/read",
           "Microsoft.Maintenance/maintenanceConfigurations/updates/read",
           "Microsoft.Maintenance/configurationAssignments/read",
           "Microsoft.Maintenance/configurationAssignments/updates/read",
           "Microsoft.Maintenance/updates/read",
-
-          // Delete Arc machine
           "Microsoft.HybridCompute/machines/delete"
         ],
         "notActions": [],
