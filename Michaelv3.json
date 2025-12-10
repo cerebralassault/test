@@ -1,7 +1,7 @@
 {
   "properties": {
     "roleName": "NixSysAdmins",
-    "description": "Provides management for all things nix related",
+    "description": "Provides management actions for Nix servers",
     "assignableScopes": [
       "/subscriptions/RG-WIN-DEV-001",
       "/subscriptions/RG-WIN-TEST-001",
