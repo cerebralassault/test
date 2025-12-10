@@ -1,7 +1,7 @@
 {
   "properties": {
-    "roleName": "Windows VM Monitoring & Configuration Operator",
-    "description": "Provides monitoring and basic start/restart access for Windows VMs. Includes diagnostics (boot and instance view) and tag editing, but not patching or deletion.",
+    "roleName": "Windows Monitoring & Configuration Operator",
+    "description": "Windows Server Monitoring and Patch Configuration",
     "assignableScopes": [
       "/subscriptions/",
       "/subscriptions/",
