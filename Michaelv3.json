@@ -1,7 +1,7 @@
 {
   "properties": {
-    "roleName": "Windows VM Monitoring & Configuration Operator",
-    "description": "Provides monitoring and basic start/restart access for Windows VMs. Includes diagnostics (boot and instance view) and tag editing, but not patching or deletion.",
+    "roleName": "NixSysAdmins",
+    "description": "Provides management for all things nix related",
     "assignableScopes": [
       "/subscriptions/RG-WIN-DEV-001",
       "/subscriptions/RG-WIN-TEST-001",
@@ -17,7 +17,6 @@
           "Microsoft.HybridCompute/locations/operations/read",
           "Microsoft.HybridCompute/locations/updateCenterOperationResults/read",
           "Microsoft.HybridCompute/machines/assessPatches/action",
-          "Microsoft.HybridCompute/machines/delete",
           "Microsoft.HybridCompute/machines/extensions/delete",
           "Microsoft.HybridCompute/machines/extensions/read",
           "Microsoft.HybridCompute/machines/extensions/write",
