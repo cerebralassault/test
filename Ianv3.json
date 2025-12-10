@@ -1,7 +1,7 @@
 {
   "properties": {
-    "roleName": "Windows VM Monitoring & Configuration Operator",
-    "description": "Provides monitoring and basic start/restart access for Windows VMs. Includes diagnostics (boot and instance view) and tag editing, but not patching or deletion.",
+    "roleName": "WinSysAdmins",
+    "description": "Provides permissions related to the management and operation of Windows Servers but not patching or deletion.",
     "assignableScopes": [
       "/subscriptions/",
       "/subscriptions/",
@@ -47,8 +47,7 @@
           "Microsoft.Maintenance/maintenanceConfigurations/updates/read",
           "Microsoft.Maintenance/configurationAssignments/read",
           "Microsoft.Maintenance/configurationAssignments/updates/read",
-          "Microsoft.Maintenance/updates/read",
-          "Microsoft.HybridCompute/machines/delete"
+          "Microsoft.Maintenance/updates/read"
         ],
         "notActions": [],
         "dataActions": [],
