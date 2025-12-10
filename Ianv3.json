@@ -4,7 +4,7 @@
     "description": "Provides monitoring and basic start/restart access for Windows VMs. Includes diagnostics (boot and instance view) and tag editing, but not patching or deletion.",
     "assignableScopes": [
       "/subscriptions/",
-      "/subscriptions/,
+      "/subscriptions/",
       "/subscriptions/",
       "/subscriptions/"
     ],
