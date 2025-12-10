@@ -19,8 +19,6 @@
           "Microsoft.HybridCompute/machines/patchAssessmentsResults/read",
           "Microsoft.HybridCompute/machines/patchAssessmentsResults/softwarePatches/read",
           "Microsoft.HybridCompute/machines/extensions/read",
-          "Microsoft.HybridCompute/machines/extensions/write",
-          "Microsoft.HybridCompute/machines/extensions/delete",
           "Microsoft.HybridCompute/machines/licenseProfiles/read",
           "Microsoft.HybridCompute/machines/hybridIdentityMetadata/read",
           "Microsoft.Resources/tags/read",
@@ -34,7 +32,6 @@
           "Microsoft.HybridCompute/locations/operationResults/read",
           "Microsoft.HybridCompute/networkConfigurations/read",
           "Microsoft.HybridCompute/settings/read",
-          "Microsoft.HybridCompute/settings/write",
           "Microsoft.OperationalInsights/workspaces/query/read",
           "Microsoft.Maintenance/configurations/read",
           "Microsoft.Maintenance/configurations/write",
@@ -44,10 +41,7 @@
           "Microsoft.Maintenance/configurationAssignments/delete",
           "Microsoft.Maintenance/configurationAssignments/updates/read",
           "Microsoft.Maintenance/updates/read",
-          "Microsoft.HybridCompute/machines/runCommands/read",
-          "Microsoft.HybridCompute/machines/runCommands/write",
-          "Microsoft.HybridCompute/machines/runCommands/delete",
-          "Microsoft.HybridCompute/machines/delete"
+          "Microsoft.HybridCompute/machines/runCommands/read"
         ],
         "notActions": [],
         "dataActions": [],
