@@ -1,153 +1,60 @@
-<#
-PowerShell 5.1
-Input file contains computer FQDNs (hostname.domain.tld).
-Prompts once per unique domain in the file for credentials.
-Queries the matching domain only. Marks unreachable domains and skips them.
-#>
+function Connect-LDAPSServer {
+    param(
+        [Parameter(Mandatory=$true)][string]$Server,
+        [Parameter(Mandatory=$true)][int]$Port,
+        [Parameter(Mandatory=$true)][string]$Username,
+        [Parameter(Mandatory=$true)][string]$PSCR_Path
+    )
 
-[CmdletBinding()]
-param(
-    [Parameter(Mandatory)]
-    [ValidateScript({ Test-Path $_ })]
-    [string]$ServerListPath,
+    if (!(Test-Path $PSCR_Path)) {
+        $cred = Get-Credential -Message "Enter ONEID credentials"
+        $cred.Password | ConvertFrom-SecureString | Set-Content -Path $PSCR_Path -Force
+    }
 
-    [string]$OutputCsv = (Join-Path $PWD ("AD_ServerAttributes_{0}.csv" -f (Get-Date -Format "yyyyMMdd_HHmmss")))
-)
+    $sec = Get-Content $PSCR_Path | ConvertTo-SecureString
+    $pwd = (New-Object pscredential($Username,$sec)).GetNetworkCredential().Password
 
-Import-Module ActiveDirectory -ErrorAction Stop
+    $id = New-Object System.DirectoryServices.Protocols.LdapDirectoryIdentifier($Server,$Port,$false,$false)
+    $c  = New-Object System.DirectoryServices.Protocols.LdapConnection($id)
 
-$attrs = @(
-    "objectOwnercodeGSS",
-    "objectOwnercodeISO",
-    "objectOwnerDesignees",
-    "objectOwners"
-)
+    $c.AuthType = [System.DirectoryServices.Protocols.AuthType]::Basic
+    $c.Timeout  = New-TimeSpan -Seconds 30
 
-# Read FQDNs (ignore blanks and comment lines)
-$servers = Get-Content -Path $ServerListPath |
-    ForEach-Object { $_.Trim() } |
-    Where-Object { $_ -and -not $_.StartsWith("#") }
+    $c.SessionOptions.SecureSocketLayer = $true
+    $c.SessionOptions.ProtocolVersion   = 3
+    $c.SessionOptions.SslProtocol       = [System.Security.Authentication.SslProtocols]::Tls12
+    $c.SessionOptions.VerifyServerCertificate = { $true }
 
-# Build unique domain list from FQDNs
-$domains = $servers | ForEach-Object {
-    if ($_ -match '\.') { ($_ -split '\.', 2)[1].ToLowerInvariant() } else { $null }
-} | Where-Object { $_ } | Sort-Object -Unique
-
-if (-not $domains) { throw "No domains detected. Expected FQDNs like server.domain.tld in $ServerListPath" }
-
-# Prompt once per domain
-$credsByDomain = @{}
-foreach ($d in $domains) {
-    $credsByDomain[$d] = Get-Credential -Message "Enter credentials for domain: $d"
+    $c.Bind((New-Object System.Net.NetworkCredential($Username,$pwd)))
+    return $c
 }
 
-# Cache unreachable domains so we don't retry
-$deadDomains = @{}  # domain -> $true
+function Get-LDAPSQuery {
+    param(
+        [Parameter(Mandatory=$true)][System.DirectoryServices.Protocols.LdapConnection]$LDAPS_Connection,
+        [Parameter(Mandatory=$true)][string]$BaseDN,
+        [Parameter(Mandatory=$true)][string]$LDAPS_Filter
+    )
 
-$results = foreach ($fqdn in $servers) {
-    if ($fqdn -notmatch '\.') {
-        [pscustomobject]@{
-            Server              = $fqdn
-            FQDN                = $fqdn
-            Domain              = $null
-            FoundInDomain        = $null
-            objectOwnercodeGSS   = $null
-            objectOwnercodeISO   = $null
-            objectOwnerDesignees = $null
-            objectOwners         = $null
-            Status              = "SKIPPED_INVALID_FQDN"
-            Error               = "Input is not an FQDN (missing domain): $fqdn"
-        }
-        continue
-    }
+    $req = New-Object System.DirectoryServices.Protocols.SearchRequest(
+        $BaseDN, $LDAPS_Filter,
+        [System.DirectoryServices.Protocols.SearchScope]::Subtree
+    )
 
-    $name   = ($fqdn -split '\.')[0]
-    $domain = ($fqdn -split '\.', 2)[1].ToLowerInvariant()
-
-    if ($deadDomains.ContainsKey($domain)) {
-        [pscustomobject]@{
-            Server              = $name
-            FQDN                = $fqdn
-            Domain              = $domain
-            FoundInDomain        = $null
-            objectOwnercodeGSS   = $null
-            objectOwnercodeISO   = $null
-            objectOwnerDesignees = $null
-            objectOwners         = $null
-            Status              = "SKIPPED_DOMAIN_UNREACHABLE"
-            Error               = "Domain marked unreachable earlier in this run"
-        }
-        continue
-    }
-
-    if (-not $credsByDomain.ContainsKey($domain)) {
-        [pscustomobject]@{
-            Server              = $name
-            FQDN                = $fqdn
-            Domain              = $domain
-            FoundInDomain        = $null
-            objectOwnercodeGSS   = $null
-            objectOwnercodeISO   = $null
-            objectOwnerDesignees = $null
-            objectOwners         = $null
-            Status              = "SKIPPED_NO_CREDS"
-            Error               = "No credentials stored for domain: $domain"
-        }
-        continue
-    }
-
-    try {
-        $adObj = Get-ADComputer -Identity $name -Server $domain -Credential $credsByDomain[$domain] -Properties $attrs -ErrorAction Stop
-
-        $designees = $adObj.objectOwnerDesignees
-        if ($designees -is [System.Array]) { $designees = ($designees -join "; ") }
-
-        $owners = $adObj.objectOwners
-        if ($owners -is [System.Array]) { $owners = ($owners -join "; ") }
-
-        [pscustomobject]@{
-            Server              = $name
-            FQDN                = $fqdn
-            Domain              = $domain
-            FoundInDomain        = $domain
-            objectOwnercodeGSS   = $adObj.objectOwnercodeGSS
-            objectOwnercodeISO   = $adObj.objectOwnercodeISO
-            objectOwnerDesignees = $designees
-            objectOwners         = $owners
-            Status              = "OK"
-            Error               = $null
-        }
-    }
-    catch {
-        $msg = $_.Exception.Message
-
-        # If domain/DC connectivity problem, mark domain as dead for the rest of the run
-        if ($msg -match '(?i)server is not operational|cannot contact|unavailable|RPC server is unavailable|LDAP server is unavailable|specified domain either does not exist|A referral was returned') {
-            $deadDomains[$domain] = $true
-            $status = "SKIPPED_DOMAIN_UNREACHABLE"
-        }
-        elseif ($msg -match '(?i)cannot find an object|does not exist') {
-            $status = "NOT_FOUND"
-        }
-        else {
-            $status = "ERROR"
-        }
-
-        [pscustomobject]@{
-            Server              = $name
-            FQDN                = $fqdn
-            Domain              = $domain
-            FoundInDomain        = $null
-            objectOwnercodeGSS   = $null
-            objectOwnercodeISO   = $null
-            objectOwnerDesignees = $null
-            objectOwners         = $null
-            Status              = $status
-            Error               = $msg
+    for ($i=1; $i -le 3; $i++) {
+        try {
+            return $LDAPS_Connection.SendRequest($req)
+        } catch [System.DirectoryServices.Protocols.DirectoryOperationException] {
+            $rc = $_.Exception.Response.ResultCode
+            if ($rc -in @(
+                [System.DirectoryServices.Protocols.ResultCode]::Busy,
+                [System.DirectoryServices.Protocols.ResultCode]::Unavailable,
+                [System.DirectoryServices.Protocols.ResultCode]::ServerDown
+            ) -and $i -lt 3) {
+                Start-Sleep -Seconds (2 * $i)
+                continue
+            }
+            throw "LDAPS query failed (ResultCode=$rc): $($_.Exception.Message)"
         }
     }
 }
-
-$results | Export-Csv -NoTypeInformation -Encoding UTF8 -Path $OutputCsv
-$results | Format-Table -AutoSize
-"Saved: $OutputCsv"
