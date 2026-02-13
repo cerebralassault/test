@@ -1,99 +1,56 @@
 <#
-ConfigMgr DP prereqs (minimal, MS-aligned)
-- IIS + required IIS components
-- RDC
-No WDS / BranchCache / Dedup
-PowerShell 5.1 required (auto-relaunch if running in pwsh)
+ConfigMgr DP Prereqs (Server 2025 safe)
+Uses DISM instead of Install-WindowsFeature
+Run elevated
 #>
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
-
-# If running under PowerShell 7+ (pwsh), relaunch in Windows PowerShell 5.1
-if ($PSVersionTable.PSEdition -eq 'Core') {
-    $ps51 = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    if (-not (Test-Path $ps51)) { throw "Windows PowerShell 5.1 not found at expected path: $ps51" }
-
-    & $ps51 -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath
-    exit $LASTEXITCODE
-}
 
 function Assert-Admin {
     $p = New-Object Security.Principal.WindowsPrincipal(
         [Security.Principal.WindowsIdentity]::GetCurrent()
     )
     if (-not $p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-        throw "This script must be run as Administrator."
+        throw "Run this script as Administrator."
     }
 }
 
-function Load-ServerManager {
-    Import-Module ServerManager -ErrorAction Stop
-    if (-not (Get-Command Install-WindowsFeature -ErrorAction SilentlyContinue)) {
-        throw "Install-WindowsFeature still not available. ServerManager module isn't usable on this system."
-    }
-}
-
-function Install-Features {
-    param([Parameter(Mandatory)][string[]]$Names)
-
-    $missing = @()
-    foreach ($name in $Names) {
-        $f = Get-WindowsFeature -Name $name
-        if (-not $f) { throw "Unknown Windows feature: $name" }
-        if (-not $f.Installed) { $missing += $name }
-    }
-
-    if ($missing.Count -eq 0) {
-        Write-Host "All required features already installed."
-        return $false
-    }
-
-    Write-Host "Installing features: $($missing -join ', ')"
-    $result = Install-WindowsFeature -Name $missing -IncludeManagementTools
-    if (-not $result.Success) { throw "Feature installation failed." }
-
-    return ($result.RestartNeeded -eq 'Yes')
-}
-
-function Start-ServiceIfPresent {
+function Enable-Feature {
     param([Parameter(Mandatory)][string]$Name)
-    $svc = Get-Service -Name $Name -ErrorAction SilentlyContinue
-    if ($svc -and $svc.Status -ne 'Running') {
-        try { Start-Service -Name $Name -ErrorAction Stop } catch {}
+
+    $state = dism /online /get-featureinfo /featurename:$Name 2>$null
+    if ($state -match "State : Enabled") {
+        Write-Host "Already enabled: $Name"
+        return
     }
+
+    Write-Host "Enabling: $Name"
+    dism /online /enable-feature /featurename:$Name /all /norestart | Out-Null
 }
 
-# -------- Execution --------
 Assert-Admin
-Load-ServerManager
 
 $features = @(
-    'Web-Server',        # IIS role
-    'Web-ISAPI-Ext',     # ISAPI Extensions
-    'Web-Windows-Auth',  # Windows Authentication
-    'Web-Metabase',      # IIS 6 Metabase Compatibility
-    'Web-WMI',           # IIS 6 WMI Compatibility
-    'RDC'                # Remote Differential Compression
+    'IIS-WebServerRole',
+    'IIS-WebServer',
+    'IIS-ISAPIExtensions',
+    'IIS-WindowsAuthentication',
+    'IIS-Metabase',
+    'IIS-WMICompatibility',
+    'RDC'
 )
 
-$restartNeeded = Install-Features -Names $features
-
-Start-ServiceIfPresent -Name 'W3SVC'
-Start-ServiceIfPresent -Name 'WAS'
-
-if ($restartNeeded) {
-    Write-Warning "A reboot is required to complete installation."
-} else {
-    Write-Host "DP prerequisites installed. No reboot required."
+foreach ($f in $features) {
+    Enable-Feature -Name $f
 }
-(Get-ComputerInfo).WindowsProductName
-$PSVersionTable.PSVersion
-$PSVersionTable.PSEdition
 
-$PSVersionTable
-Get-Command Install-WindowsFeature -All -ErrorAction SilentlyContinue
-Get-Module -ListAvailable ServerManager | Select Name,Version,Path
-Import-Module ServerManager -Force
-Get-Command Install-WindowsFeature -All -ErrorAction SilentlyContinue
+# Start IIS services if present
+foreach ($svc in @('W3SVC','WAS')) {
+    $s = Get-Service $svc -ErrorAction SilentlyContinue
+    if ($s -and $s.Status -ne 'Running') {
+        Start-Service $svc
+    }
+}
 
+Write-Warning "If features were newly installed, reboot before installing the DP role."
