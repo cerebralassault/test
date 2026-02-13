@@ -87,3 +87,6 @@ if ($restartNeeded) {
 } else {
     Write-Host "DP prerequisites installed. No reboot required."
 }
+(Get-ComputerInfo).WindowsProductName
+$PSVersionTable.PSVersion
+$PSVersionTable.PSEdition
