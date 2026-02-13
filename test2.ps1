@@ -90,3 +90,10 @@ if ($restartNeeded) {
 (Get-ComputerInfo).WindowsProductName
 $PSVersionTable.PSVersion
 $PSVersionTable.PSEdition
+
+$PSVersionTable
+Get-Command Install-WindowsFeature -All -ErrorAction SilentlyContinue
+Get-Module -ListAvailable ServerManager | Select Name,Version,Path
+Import-Module ServerManager -Force
+Get-Command Install-WindowsFeature -All -ErrorAction SilentlyContinue
+
