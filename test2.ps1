@@ -1,19 +1,22 @@
 <#
-ConfigMgr Distribution Point prerequisite installer (minimal, MS-aligned)
-Windows Server + PowerShell 5.1
-Runs immediately with no parameters
-
-Installs:
- - IIS (with required subfeatures for ConfigMgr DP)
- - RDC
-
-Leaves out:
- - WDS / BranchCache / Dedup
- - BITS IIS Server Extension (not required for DP)
+ConfigMgr DP prereqs (minimal, MS-aligned)
+- IIS + required IIS components
+- RDC
+No WDS / BranchCache / Dedup
+PowerShell 5.1 required (auto-relaunch if running in pwsh)
 #>
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
+
+# If running under PowerShell 7+ (pwsh), relaunch in Windows PowerShell 5.1
+if ($PSVersionTable.PSEdition -eq 'Core') {
+    $ps51 = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    if (-not (Test-Path $ps51)) { throw "Windows PowerShell 5.1 not found at expected path: $ps51" }
+
+    & $ps51 -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath
+    exit $LASTEXITCODE
+}
 
 function Assert-Admin {
     $p = New-Object Security.Principal.WindowsPrincipal(
@@ -24,9 +27,10 @@ function Assert-Admin {
     }
 }
 
-function Assert-WindowsServer {
+function Load-ServerManager {
+    Import-Module ServerManager -ErrorAction Stop
     if (-not (Get-Command Install-WindowsFeature -ErrorAction SilentlyContinue)) {
-        throw "Install-WindowsFeature not found. This script is for Windows Server only."
+        throw "Install-WindowsFeature still not available. ServerManager module isn't usable on this system."
     }
 }
 
@@ -49,13 +53,11 @@ function Install-Features {
     $result = Install-WindowsFeature -Name $missing -IncludeManagementTools
     if (-not $result.Success) { throw "Feature installation failed." }
 
-    # RestartNeeded is typically "Yes"/"No" (string)
     return ($result.RestartNeeded -eq 'Yes')
 }
 
 function Start-ServiceIfPresent {
     param([Parameter(Mandatory)][string]$Name)
-
     $svc = Get-Service -Name $Name -ErrorAction SilentlyContinue
     if ($svc -and $svc.Status -ne 'Running') {
         try { Start-Service -Name $Name -ErrorAction Stop } catch {}
@@ -63,11 +65,9 @@ function Start-ServiceIfPresent {
 }
 
 # -------- Execution --------
-
 Assert-Admin
-Assert-WindowsServer
+Load-ServerManager
 
-# Minimal DP prerequisites (IIS + required IIS components + RDC)
 $features = @(
     'Web-Server',        # IIS role
     'Web-ISAPI-Ext',     # ISAPI Extensions
@@ -79,9 +79,8 @@ $features = @(
 
 $restartNeeded = Install-Features -Names $features
 
-# Best-effort: start common services after role installation
-Start-ServiceIfPresent -Name 'W3SVC'     # IIS
-Start-ServiceIfPresent -Name 'WAS'       # Windows Process Activation Service (usually already running)
+Start-ServiceIfPresent -Name 'W3SVC'
+Start-ServiceIfPresent -Name 'WAS'
 
 if ($restartNeeded) {
     Write-Warning "A reboot is required to complete installation."
