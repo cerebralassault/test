@@ -2,71 +2,39 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-function Enable-IISPrereqs {
-    param(
-        [switch]$AspNet45,
-        [switch]$WindowsAuth,
-        [switch]$WebSockets,
-        [switch]$NetFx3
-    )
+$features = @(
+    # IIS Core
+    "IIS-WebServerRole",
+    "IIS-WebServer",
+    "IIS-CommonHttpFeatures",
+    "IIS-DefaultDocument",
+    "IIS-DirectoryBrowsing",
+    "IIS-HttpErrors",
+    "IIS-StaticContent",
 
-    $features = @(
-        "IIS-WebServerRole",
-        "IIS-WebServer",
-        "IIS-CommonHttpFeatures",
-        "IIS-DefaultDocument",
-        "IIS-DirectoryBrowsing",
-        "IIS-HttpErrors",
-        "IIS-StaticContent",
+    # Health & Diagnostics
+    "IIS-HttpLogging",
+    "IIS-RequestMonitor",
 
-        "IIS-HttpLogging",
-        "IIS-RequestMonitor",
+    # Performance
+    "IIS-HttpCompressionStatic",
+    "IIS-HttpCompressionDynamic",
 
-        "IIS-Security",
-        "IIS-RequestFiltering",
+    # Security
+    "IIS-RequestFiltering",
+    "IIS-WindowsAuthentication",
 
-        "IIS-Performance",
-        "IIS-HttpCompressionStatic",
-        "IIS-HttpCompressionDynamic",
+    # Management
+    "IIS-ManagementConsole",
 
-        "IIS-ApplicationDevelopment",
-        "IIS-ISAPIExtensions",
-        "IIS-ISAPIFilter",
+    # BITS
+    "BITS",
+    "BITS-IIS-Ext"
+)
 
-        "IIS-ManagementConsole",
-        "IIS-ManagementService"
-    )
-
-    if ($AspNet45) {
-        $features += @(
-            "IIS-NetFxExtensibility45",
-            "IIS-ASPNET45"
-        )
-    }
-
-    if ($WindowsAuth) {
-        $features += "IIS-WindowsAuthentication"
-    }
-
-    if ($WebSockets) {
-        $features += "IIS-WebSockets"
-    }
-
-    if ($NetFx3) {
-        $features += "NetFx3"
-    }
-
-    $features = $features | Select-Object -Unique
-
-    foreach ($feature in $features) {
-        Write-Host "Enabling $feature ..."
-        dism /online /enable-feature /featurename:$feature /all /norestart | Out-Null
-    }
-
-    Write-Host "IIS prerequisites enabled."
+foreach ($feature in $features | Select-Object -Unique) {
+    Write-Host "Enabling $feature..."
+    dism /online /enable-feature /featurename:$feature /all /norestart | Out-Null
 }
 
-# Example usage:
-Enable-IISPrereqs -AspNet45 -WindowsAuth
-# Enable-IISPrereqs -WebSockets
-# Enable-IISPrereqs -NetFx3   # Only if you truly need .NET 3.5
+Write-Host "Distribution Point prerequisites installed."
