@@ -9,3 +9,6 @@ try {
     $ssl.Close()
     $tcp.Close()
 }
+
+
+Get-TlsCipherSuite | Where-Object { $_.Protocols -contains 'TLS1.2' -or $_.Protocols -contains 'TLS1.3' } | Select-Object Name | Format-Table -AutoSize
